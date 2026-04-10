@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#080808">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◉</text></svg>">
+<title>Today Focus</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body,#root{min-height:100vh;min-height:100dvh;background:#080808}
+body{font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP','SF Pro',monospace;color:#e8e4dc;overflow-x:hidden}
+input,textarea,button{font-family:inherit}
+@keyframes pulse{0%,100%{opacity:.3}50%{opacity:.8}}
+@keyframes flashOut{0%{opacity:.2}100%{opacity:0}}
+.drag-card{transition:transform .3s cubic-bezier(.2,.8,.3,1),opacity .3s ease}
+.drag-card.dragging{opacity:.85;z-index:100;box-shadow:0 12px 40px rgba(0,0,0,.6);transform:scale(1.03)}
+.drag-card.drag-over-top{transform:translateY(8px)}
+.drag-card.drag-over-bottom{transform:translateY(-8px)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script>
+'use strict';
+const e=React.createElement, h=React.useState, ue=React.useEffect, ur=React.useRef, um=React.useMemo, uc=React.useCallback;
+
+const SK="tfocus-state2",STK="tfocus-streak",HK="tfocus-history";
+const AC=["#c8f060","#ff4d2e","#00d4ff","#ffcc00","#ff69b4"];
+function today(){return new Date().toLocaleDateString("ja-JP")}
+function sGet(k){try{const v=localStorage.getItem(k);return v?JSON.parse(v):null}catch{return null}}
+function sSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function dateSeed(s){let h=0;for(let i=0;i<s.length;i++)h=Math.imul(31,h)+s.charCodeAt(i)|0;return h}
+
+let _uid=Date.now();
+function uid(){return"t"+(++_uid)}
+
+const QUOTES=[
+["芸術とは、目に見えるものを写すことではない。見えないものを見えるようにすることだ","パウル・クレー"],
+["私はいつも自分にできないことをしている。そうすればそのやり方を学べるからだ","パブロ・ピカソ"],
+["すべての子供はアーティストだ。問題は、大人になってもアーティストでいられるかどうかだ","パブロ・ピカソ"],
+["明日死ぬかのように生きよ。永遠に生きるかのように学べ","ガンジー"],
+["危険だ、という道は必ず、自分の行きたい道なのだ","岡本太郎"],
+["芸術は爆発だ","岡本太郎"],
+["人生に命を賭けていないから、つまらないのだ","岡本太郎"],
+["才能がないと思うなら、それでもいい。才能なんかなくても、生きる情熱があればいい","岡本太郎"],
+["ルールを学べ。そしてプロのようにルールを破れ","ダライ・ラマ"],
+["始める方法は、語るのをやめて動き始めることだ","ウォルト・ディズニー"],
+["人生はチョコレートの箱みたいなもの。開けてみるまで何が入ってるかわからない","フォレスト・ガンプ"],
+["昨日の自分に今日が負けるわけにはいかないんだよ","あしたのジョー"],
+["諦めたらそこで試合終了ですよ","スラムダンク"],
+["お前にはまだ、やらなきゃいけないことがあるだろ","千と千尋の神隠し"],
+["生きろ。","もののけ姫"],
+["大事なものは目に見えない","星の王子さま"],
+["希望は良いものだ。たぶん最良のものだ。そして良いものは決して滅びない","ショーシャンクの空に"],
+["人の運命は、その人の性格の中にある","ゴッドファーザー"],
+["世界を変えるのは、小さな勇気の積み重ねだ","ガンダルフ"],
+["強い人間とは、泣いてはいけない場面で泣かない人間ではない。泣きたい時に泣ける人間だ","是枝裕和"],
+["この世には偶然なんてない。あるのは必然だけ","xxxHOLiC"],
+["過去は変えられない。でも未来はまだ変えられる","バック・トゥ・ザ・フューチャー"],
+["どうして自分を変えようとしないんだ？変わることは怖いことじゃない","黒澤明"],
+["映画は一秒二十四コマの真実だ","ゴダール"],
+["一本の映画で世界は変わらない。でも、一本の映画で一人の人間は変われる","是枝裕和"],
+["舞台の上では嘘をつくな。嘘の中の真実を見つけろ","スタニスラフスキー"],
+["役者とは、毎晩死んで毎晩生き返る仕事だ","蜷川幸雄"],
+["全力でやれ。中途半端にやるぐらいなら、やらない方がマシだ","蜷川幸雄"],
+["お前たちは若い。若いということは、それだけで可能性だ","蜷川幸雄"],
+["稽古場は戦場だ。本番は祈りだ","蜷川幸雄"],
+["才能とは、自分を信じる力のことだ","スタニスラフスキー"],
+["演劇とは、人間が人間を見つめる最も古い装置だ","ピーター・ブルック"],
+["空っぽの空間に一人の人間が歩いてくる。もう一人がそれを見ている。演劇が始まるのに必要なのは、それだけだ","ピーター・ブルック"],
+["失敗を恐れるな。失敗こそが最良の教師だ","野田秀樹"],
+["舞台は生きている。だから毎日違う。だから毎日面白い","野田秀樹"],
+["劇場に入ったら、自分を捨てろ","浅利慶太"],
+["本当のリアリズムとは、自分の感情に嘘をつかないことだ","リー・ストラスバーグ"],
+["一回限りの公演に全てを賭ける。その覚悟が演劇だ","鈴木忠志"],
+["稽古とは、できないことをできるようにすることではない。できることの精度を上げることだ","世阿弥"],
+["秘すれば花なり。秘せずば花なるべからず","世阿弥"],
+["完璧を目指すよりまず終わらせろ","シェリル・サンドバーグ"],
+["何かを始めるのに、完璧なタイミングなど存在しない","ナポレオン・ヒル"],
+["プロフェッショナルとは、やる気がない日でもやる人間のことだ","演劇界の格言"],
+["一番大事なのは、自分の声を持つことだ。借り物の言葉では人の心は動かせない","宮崎駿"],
+["創造とは、既存の要素の新しい組み合わせである","ジェームズ・W・ヤング"],
+["毎日少しずつ。それが最終的に大きな差になる","イチロー"],
+["準備というのは、言い訳の材料じゃなく、自信の材料を増やすことだ","イチロー"],
+["才能の差は小さいが、努力の差は大きい。継続の差はもっと大きい","羽生善治"],
+["表現する者は、まず自分自身の深さに降りていかなければならない","太宰治"],
+["やるか、やらないか。試しにやるなんて、ない","ヨーダ"],
+];
+function getTodayQuote(){const r=mulberry32(dateSeed(today()));r();r();r();r();r();const i=Math.floor(r()*QUOTES.length);return{text:QUOTES[i][0],by:QUOTES[i][1]}}
+function fmtQ(text){const parts=text.split(/(?<=[。？])/);const r=[];parts.forEach((p,i)=>{if(!p)return;if(i>0)r.push(e("br",{key:"b"+i}));r.push(p)});return r}
+function loadHistory(){return sGet(HK)||[]}
+function saveToHistory(d,tasks){if(!tasks.length)return;const hist=loadHistory();sSet(HK,[{date:d,tasks:tasks.map(t=>t.text)},...hist.filter(x=>x.date!==d)].slice(0,30))}
+function loadStreak(tod){const s=sGet(STK);if(!s){const f={count:1,lastDate:tod};sSet(STK,f);return f}const diff=Math.round((new Date(tod.replace(/\//g,"-"))-new Date(s.lastDate.replace(/\//g,"-")))/86400000);if(diff===0)return s;const u=diff===1?{count:s.count+1,lastDate:tod}:{count:1,lastDate:tod};sSet(STK,u);return u}
+
+// ── Components ──
+function GeoBg({ai=0}){
+  const acc=AC[ai%AC.length];
+  const paths=um(()=>{const r=mulberry32(dateSeed(today())),W=480,H=920,o=[];
+    for(let i=0;i<14;i++){const x=r()*W,y=r()*H,a=r()*Math.PI*2,l=60+r()*350;o.push({t:"l",x1:x,y1:y,x2:x+Math.cos(a)*l,y2:y+Math.sin(a)*l,op:.035+r()*.055,a:r()>.6})}
+    for(let i=0;i<5;i++){const cx=r()*W,cy=r()*H,R=40+r()*200,sa=r()*Math.PI*2,sw=.4+r()*2.8;o.push({t:"a",d:`M ${cx+Math.cos(sa)*R} ${cy+Math.sin(sa)*R} A ${R} ${R} 0 ${sw>Math.PI?1:0} 1 ${cx+Math.cos(sa+sw)*R} ${cy+Math.sin(sa+sw)*R}`,op:.03+r()*.05,a:r()>.45})}
+    for(let i=0;i<3;i++){const cx=r()*W,cy=r()*H,R=25+r()*120,sides=r()>.5?3:6,rot=r()*Math.PI*2;const pts=[];for(let j=0;j<sides;j++){const a=(Math.PI*2*j)/sides+rot;pts.push(`${cx+Math.cos(a)*R},${cy+Math.sin(a)*R}`)}o.push({t:"p",points:pts.join(" "),op:.03+r()*.045,a:r()>.5})}
+    for(let i=0;i<8;i++)o.push({t:"d",cx:r()*W,cy:r()*H,r:1+r()*3,op:.05+r()*.08,a:r()>.4});return o},[]);
+  return e("div",{style:{position:"fixed",inset:0,zIndex:0,pointerEvents:"none",display:"flex",justifyContent:"center"}},
+    e("svg",{viewBox:"0 0 480 920",preserveAspectRatio:"xMidYMid slice",style:{width:"100%",height:"100%"}},
+      paths.map((p,i)=>{const c=p.a?acc:"#fff";
+        if(p.t==="l")return e("line",{key:i,x1:p.x1,y1:p.y1,x2:p.x2,y2:p.y2,stroke:c,strokeWidth:.5,opacity:p.op});
+        if(p.t==="a")return e("path",{key:i,d:p.d,stroke:c,strokeWidth:.5,fill:"none",opacity:p.op});
+        if(p.t==="p")return e("polygon",{key:i,points:p.points,stroke:c,strokeWidth:.5,fill:"none",opacity:p.op});
+        if(p.t==="d")return e("circle",{key:i,cx:p.cx,cy:p.cy,r:p.r,fill:c,opacity:p.op});return null})));
+}
+function GlitchText({children,style:s}){
+  const[o,so]=h({x:0,y:0,on:false});
+  ue(()=>{const id=setInterval(()=>{if(Math.random()<.03){so({x:(Math.random()-.5)*4,y:(Math.random()-.5)*2,on:true});setTimeout(()=>so({x:0,y:0,on:false}),60)}},100);return()=>clearInterval(id)},[]);
+  const k=[];if(o.on){k.push(e("span",{key:"r",style:{...s,position:"absolute",left:o.x-1,top:o.y,color:"#ff4d2e",opacity:.7,mixBlendMode:"screen",clipPath:"inset(10% 0 40% 0)"}},children));k.push(e("span",{key:"b",style:{...s,position:"absolute",left:-o.x+1,top:-o.y,color:"#00d4ff",opacity:.5,mixBlendMode:"screen",clipPath:"inset(50% 0 10% 0)"}},children))}
+  k.push(e("span",{key:"m"},children));return e("div",{style:{...s,position:"relative"}},k);
+}
+function Stagger({children,delay:d=0}){const[v,sv]=h(false);ue(()=>{const t=setTimeout(()=>sv(true),d);return()=>clearTimeout(t)},[d]);return e("div",{style:{opacity:v?1:0,transform:v?"translateY(0)":"translateY(20px)",transition:"opacity .6s cubic-bezier(.2,.8,.3,1),transform .6s cubic-bezier(.2,.8,.3,1)"}},children)}
+function ProgressBar({pct,ai}){const a=AC[ai%AC.length],n=AC[(ai+1)%AC.length];return e("div",{style:{position:"fixed",top:0,left:0,height:3,zIndex:10,width:pct+"%",background:`linear-gradient(90deg,${a},${n})`,transition:"width 1s cubic-bezier(.7,0,.3,1)",boxShadow:`0 0 20px ${a}66`}},e("div",{style:{position:"absolute",right:0,top:-2,width:7,height:7,borderRadius:"50%",background:n,boxShadow:`0 0 12px ${n}`}}))}
+
+// Task structure: {id: string, text: string, subs: [{text: string, done: bool}]}
+function mkTask(text){return{id:uid(),text,subs:[]}}
+function cloneTasks(ts){return ts.map(t=>({id:t.id,text:t.text,subs:t.subs.map(s=>({...s}))}))}
+
+// ── Drag reorder hook ──
+function useDragReorder(tasks, onReorder){
+  const dragFrom=ur(null);
+  const dragTo=ur(null);
+  const[dragIdx,setDragIdx]=h(-1);
+  const[overIdx,setOverIdx]=h(-1);
+  const touchY=ur(0);
+  const cardRefs=ur({});
+
+  function regRef(id,el){if(el)cardRefs.current[id]=el;else delete cardRefs.current[id]}
+
+  function handleDragStart(i,clientY){
+    dragFrom.current=i;touchY.current=clientY;setDragIdx(i);
+  }
+  function handleDragMove(clientY){
+    if(dragFrom.current===null)return;
+    const entries=tasks.map((t,i)=>{const el=cardRefs.current[t.id];if(!el)return null;const r=el.getBoundingClientRect();return{i,mid:r.top+r.height/2}}).filter(Boolean);
+    let closest=-1, minD=Infinity;
+    for(const en of entries){const d=Math.abs(clientY-en.mid);if(d<minD){minD=d;closest=en.i}}
+    dragTo.current=closest;setOverIdx(closest);
+  }
+  function handleDragEnd(){
+    const from=dragFrom.current, to=dragTo.current;
+    dragFrom.current=null;dragTo.current=null;setDragIdx(-1);setOverIdx(-1);
+    if(from!==null&&to!==null&&from!==to)onReorder(from,to);
+  }
+
+  // Touch handlers for grip area
+  function onTouchStart(i){return ev=>{ev.preventDefault();handleDragStart(i,ev.touches[0].clientY)}}
+  function onTouchMove(ev){if(dragFrom.current!==null){ev.preventDefault();handleDragMove(ev.touches[0].clientY)}}
+  function onTouchEnd(){handleDragEnd()}
+
+  // Mouse fallback
+  function onMouseDown(i){return ev=>{ev.preventDefault();handleDragStart(i,ev.clientY);
+    const mm=ev2=>handleDragMove(ev2.clientY);
+    const mu=()=>{handleDragEnd();window.removeEventListener("mousemove",mm);window.removeEventListener("mouseup",mu)};
+    window.addEventListener("mousemove",mm);window.addEventListener("mouseup",mu)}}
+
+  return{dragIdx,overIdx,regRef,onTouchStart,onTouchMove,onTouchEnd,onMouseDown}
+}
+
+// ── App ──
+function App(){
+  const tod=today(), quote=um(()=>getTodayQuote(),[]);
+  const[st,setSt]=h(null);
+  const[streak,setStreak]=h(null);
+  const[hist,setHist]=h([]);
+  const[inp,setInp]=h("");
+  const[sugg,setSugg]=h([]);
+  const[exitNote,setExitNote]=h("");
+  const[showExit,setShowExit]=h(false);
+  const[flash,setFlash]=h(false);
+  const[scrFlash,setScrFlash]=h(null);
+  const[editId,setEditId]=h(null);   // changed: track by task ID, not index
+  const[editVal,setEditVal]=h("");
+  const[undos,setUndos]=h([]);
+  const[expTask,setExpTask]=h(null);  // changed: track by task ID
+  const[subInp,setSubInp]=h("");
+  const iRef=ur(null);
+
+  ue(()=>{
+    let s={mode:"home",tasks:[],ci:0,exitNotes:{},date:tod};
+    const saved=sGet(SK);
+    if(saved){
+      const tasks=(saved.tasks||[]).map(t=>{
+        if(typeof t==="string") return mkTask(t);
+        return{id:t.id||uid(),text:t.text||"",subs:(t.subs||[]).map(s=>typeof s==="string"?{text:s,done:false}:s)};
+      });
+      if(saved.mode==="focus"||saved.mode==="done") s={...s,...saved,tasks};
+      else s={...s,tasks,exitNotes:saved.exitNotes||{}};
+    }
+    setSt(s);setStreak(loadStreak(tod));setHist(loadHistory());
+  },[]);
+
+  ue(()=>{if(st)sSet(SK,st)},[st]);
+  ue(()=>{
+    if(!inp.trim()){setSugg([]);return}
+    const all=[...new Set(hist.flatMap(h=>h.tasks))];
+    const cur=st?st.tasks.map(t=>t.text):[];
+    setSugg(all.filter(t=>t.includes(inp)&&!cur.includes(t)).slice(0,4));
+  },[inp,hist,st]);
+
+  if(!st)return e("div",{style:{minHeight:"100vh",background:"#080808",display:"flex",alignItems:"center",justifyContent:"center"}},e(GeoBg),e("div",{style:{zIndex:1,fontSize:48,fontWeight:900,letterSpacing:-2,color:"#1a1a1a",animation:"pulse 2s ease-in-out infinite"}},"///"));
+
+  const{mode,tasks,ci,exitNotes}=st;
+  const cur=tasks[ci];
+  const pct=tasks.length>0?(ci/tasks.length)*100:0;
+  const dayAcc=AC[Math.floor(mulberry32(dateSeed(tod))()*AC.length)];
+  const P={position:"relative",zIndex:1,maxWidth:480,margin:"0 auto",padding:"0 22px 80px"};
+
+  function pushU(){setUndos(u=>[...u.slice(-19),cloneTasks(tasks)])}
+  function undo(){if(!undos.length)return;const p=undos[undos.length-1];setUndos(u=>u.slice(0,-1));setSt(s=>({...s,tasks:p}));setEditId(null)}
+  function addTask(txt){const t=(txt??inp).trim();if(!t||tasks.length>=5)return;pushU();setSt(s=>({...s,tasks:[...s.tasks,mkTask(t)]}));setInp("");setSugg([]);setTimeout(()=>iRef.current?.focus(),50)}
+  function rmTask(id){pushU();setEditId(null);setExpTask(null);setSt(s=>({...s,tasks:s.tasks.filter(t=>t.id!==id)}))}
+  function startEdit(id){const task=tasks.find(t=>t.id===id);if(!task)return;setEditId(id);setEditVal(task.text);setExpTask(null)}
+  function commitEdit(){
+    if(editId===null){setEditVal("");return}
+    const v=editVal.trim();
+    const task=tasks.find(t=>t.id===editId);
+    if(v&&task&&v!==task.text){pushU();setSt(s=>({...s,tasks:s.tasks.map(t=>t.id===editId?{...t,text:v}:t)}))}
+    setEditId(null);setEditVal("");
+  }
+  function reorderTasks(from,to){
+    pushU();
+    setSt(s=>{
+      const ts=cloneTasks(s.tasks);
+      const[item]=ts.splice(from,1);
+      ts.splice(to,0,item);
+      return{...s,tasks:ts};
+    });
+  }
+  function clearAll(){pushU();setSt(s=>({...s,tasks:[]}))}
+  function addSub(id){const t=subInp.trim();if(!t)return;setSt(s=>{const ts=cloneTasks(s.tasks);const task=ts.find(t2=>t2.id===id);if(task)task.subs.push({text:t,done:false});return{...s,tasks:ts}});setSubInp("")}
+  function rmSub(id,si){setSt(s=>{const ts=cloneTasks(s.tasks);const task=ts.find(t=>t.id===id);if(task)task.subs.splice(si,1);return{...s,tasks:ts}})}
+  function toggleSub(ti,si){setSt(s=>{const ts=cloneTasks(s.tasks);ts[ti].subs[si].done=!ts[ti].subs[si].done;return{...s,tasks:ts}})}
+  function startFocus(){if(!tasks.length)return;saveToHistory(tod,tasks);setHist(loadHistory());setSt(s=>({...s,mode:"focus",ci:0,date:tod}))}
+  function completeTask(){setScrFlash(AC[ci%AC.length]);setFlash(true);setTimeout(()=>setScrFlash(null),300);setTimeout(()=>{setFlash(false);setSt(s=>{const n=s.ci+1;return n>=s.tasks.length?{...s,mode:"done"}:{...s,ci:n}})},600)}
+  function doExitNext(){const note=exitNote.trim();const nn={...exitNotes};if(note)nn[ci]=note;setExitNote("");setShowExit(false);setSt(s=>{const n=s.ci+1;return n>=s.tasks.length?{...s,exitNotes:nn,mode:"done"}:{...s,exitNotes:nn,ci:n}})}
+  function reset(){setSt({mode:"home",tasks:[],ci:0,exitNotes:{},date:tod})}
+
+  // ── HOME ──
+  if(mode==="home") return e("div",{style:{minHeight:"100dvh",background:"#080808",position:"relative",overflowX:"hidden",display:"flex",flexDirection:"column"}},
+    e(GeoBg,{ai:Math.floor(mulberry32(dateSeed(tod))()*5)}),
+    e("div",{style:{...P,flex:1,display:"flex",flexDirection:"column",justifyContent:"center",paddingBottom:40}},
+      e(Stagger,{delay:0},e("div",{style:{fontSize:"clamp(10px,2.5vw,12px)",letterSpacing:10,color:"#2a2a2a",marginBottom:24,fontWeight:300,textAlign:"center"}},tod.replace(/\//g,"."))),
+      streak?.count>0?e(Stagger,{delay:100},e("div",{style:{textAlign:"center",marginBottom:40}},
+        e(GlitchText,{style:{fontSize:"clamp(100px,30vw,160px)",fontWeight:900,color:"#e8b820",lineHeight:.8,letterSpacing:-8,display:"inline-block"}},streak.count),
+        e("div",{style:{display:"flex",justifyContent:"center",gap:8,marginTop:8}},e("span",{style:{fontSize:12,color:"#7a6020",letterSpacing:5,fontWeight:700}},"DAY"+(streak.count>1?"S":"")),e("span",{style:{fontSize:12,color:"#3a3010",letterSpacing:5}},"STREAK"))
+      )):null,
+      e(Stagger,{delay:300},e("div",{style:{textAlign:"center",marginBottom:56,padding:"0 8px"}},
+        e("div",{style:{width:32,height:1,background:dayAcc+"66",margin:"0 auto 20px"}}),
+        e("p",{style:{fontSize:"clamp(15px,4.2vw,19px)",lineHeight:2,color:"#bbb",fontStyle:"italic",letterSpacing:.5,margin:"0 0 12px"}},"「",...fmtQ(quote.text),"」"),
+        e("p",{style:{fontSize:11,color:"#555",letterSpacing:4,margin:0}},"— "+quote.by),
+        e("div",{style:{width:32,height:1,background:dayAcc+"66",margin:"20px auto 0"}})
+      )),
+      e(Stagger,{delay:500},e("button",{onClick:()=>setSt(s=>({...s,mode:"setup"})),style:{width:"100%",border:"none",borderRadius:10,padding:"22px 24px",display:"flex",justifyContent:"center",alignItems:"center",gap:12,cursor:"pointer",fontSize:15,fontWeight:900,color:"#000",letterSpacing:6,background:dayAcc,boxShadow:`0 0 50px ${dayAcc}33,0 4px 30px rgba(0,0,0,0.5)`}},"TODAY'S FOCUS",e("span",{style:{fontSize:20,marginLeft:4}},"→")))
+    )
+  );
+
+  // ── SETUP ──
+  if(mode==="setup"){
+    return e(SetupScreen,{
+      tasks,st,setSt,pushU:()=>setUndos(u=>[...u.slice(-19),cloneTasks(tasks)]),
+      undos,undo,addTask,rmTask,startEdit,editId,editVal,setEditVal,commitEdit,
+      reorderTasks,clearAll,addSub,rmSub,expTask,setExpTask,subInp,setSubInp,
+      startFocus,inp,setInp,sugg,iRef,dayAcc,P
+    });
+  }
+
+  // ── DONE ──
+  if(mode==="done") return e("div",{style:{minHeight:"100vh",background:"#080808",position:"relative",overflowX:"hidden"}},
+    e(GeoBg,{ai:0}),
+    e("div",{style:{position:"fixed",inset:0,zIndex:1,pointerEvents:"none",background:`radial-gradient(circle at 50% 40%,${AC[0]}08 0%,transparent 70%)`}}),
+    e("div",{style:P},
+      e(Stagger,{delay:0},e("div",{style:{paddingTop:60,marginBottom:8,display:"flex",alignItems:"center",gap:16}},
+        e("div",{style:{fontSize:56,color:"#c8f060",textShadow:"0 0 40px #c8f06044",lineHeight:1}},"◉"),
+        e(GlitchText,{style:{fontSize:"clamp(48px,16vw,84px)",fontWeight:900,letterSpacing:-3,lineHeight:.9}},"DONE")
+      )),
+      e(Stagger,{delay:150},e("div",{style:{display:"flex",gap:16,alignItems:"center",marginBottom:44}},
+        streak?e("span",{style:{fontSize:13,color:"#e8b820",letterSpacing:2}},"🔥 "+streak.count+"日連続"):null,
+        e("span",{style:{fontSize:11,color:"#222",letterSpacing:4}},tod.replace(/\//g,"."))
+      )),
+      e("div",{style:{marginBottom:44}},tasks.map((task,i)=>e(Stagger,{key:task.id,delay:300+i*120},
+        e("div",{style:{borderLeft:"3px solid "+AC[i%AC.length],marginBottom:6,background:"rgba(255,255,255,0.015)",borderRadius:"0 6px 6px 0"}},
+          e("div",{style:{display:"flex",gap:14,alignItems:"flex-start",padding:"16px 14px"}},
+            e("span",{style:{fontSize:11,fontWeight:900,flexShrink:0,width:22,marginTop:2,color:AC[i%AC.length]}},String(i+1).padStart(2,"0")),
+            e("div",{style:{flex:1}},
+              e("div",{style:{fontSize:16,marginBottom:3,fontWeight:600}},task.text),
+              exitNotes[i]?e("div",{style:{fontSize:11,color:"#444",lineHeight:1.5}},"→ ",exitNotes[i]):null
+            ),
+            e("span",{style:{fontSize:18,fontWeight:900,flexShrink:0,marginTop:1,color:AC[i%AC.length]}},"✓")
+          ),
+          task.subs.length>0?e("div",{style:{padding:"0 14px 12px 50px"}},task.subs.map((sub,si)=>e("div",{key:si,style:{display:"flex",alignItems:"center",gap:8,marginBottom:2}},
+            e("span",{style:{fontSize:11,color:sub.done?AC[i%AC.length]+"88":"#333"}},sub.done?"✓":"○"),
+            e("span",{style:{fontSize:12,color:sub.done?"#555":"#444",textDecoration:sub.done?"line-through":"none"}},sub.text)
+          ))):null
+        )
+      ))),
+      e(Stagger,{delay:300+tasks.length*120+100},e("div",{style:{textAlign:"center",marginBottom:32,padding:"0 8px"}},
+        e("p",{style:{fontSize:13,lineHeight:2,color:"#666",fontStyle:"italic"}},"「",...fmtQ(quote.text),"」"),
+        e("p",{style:{fontSize:10,color:"#333",letterSpacing:3}},"— "+quote.by)
+      )),
+      e(Stagger,{delay:300+tasks.length*120+300},e("button",{onClick:reset,style:{width:"100%",background:"transparent",border:"1px solid #1a1a1a",borderRadius:8,padding:20,fontSize:13,fontWeight:900,color:"#3a3a3a",cursor:"pointer",letterSpacing:5}},"TOMORROW →"))
+    )
+  );
+
+  // ── FOCUS ──
+  const acc=AC[ci%AC.length];
+  return e("div",{style:{minHeight:"100vh",background:"#080808",position:"relative",overflowX:"hidden"}},
+    e(GeoBg,{ai:ci}),e(ProgressBar,{pct,ai:ci}),
+    scrFlash?e("div",{style:{position:"fixed",inset:0,zIndex:20,pointerEvents:"none",background:scrFlash,opacity:.15,animation:"flashOut .3s ease-out forwards"}}):null,
+    e("div",{style:P},
+      e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-end",paddingTop:52,marginBottom:12}},
+        e("span",{style:{lineHeight:1,display:"flex",alignItems:"baseline",gap:4}},
+          e("span",{style:{color:acc,fontSize:42,fontWeight:900,lineHeight:1,textShadow:`0 0 30px ${acc}44`}},String(ci+1).padStart(2,"0")),
+          e("span",{style:{color:"#1a1a1a",fontSize:18,fontWeight:300}},"/"),
+          e("span",{style:{color:"#2a2a2a",fontSize:14,fontWeight:500}},String(tasks.length).padStart(2,"0"))
+        ),
+        streak?.count>0?e("span",{style:{fontSize:13,color:"#604800"}},"🔥"+streak.count):null
+      ),
+      e("div",{style:{fontSize:"clamp(30px,9vw,48px)",fontWeight:900,lineHeight:1.15,letterSpacing:-1.5,marginBottom:cur&&cur.subs.length?16:36,borderLeft:"4px solid "+acc,paddingLeft:18,paddingTop:8,paddingBottom:8,minHeight:80,position:"relative",overflow:"hidden",opacity:flash?0:1,transform:flash?"translateX(60px) scale(0.95)":"translateX(0) scale(1)",transition:"all .5s cubic-bezier(.7,0,.3,1)"}},
+        e("div",{style:{position:"absolute",inset:0,borderRadius:"0 8px 8px 0",pointerEvents:"none",background:`linear-gradient(90deg,${acc}08,transparent)`}}),
+        e("span",{style:{position:"relative",zIndex:1}},cur?.text)
+      ),
+      cur&&cur.subs.length>0&&!showExit?e("div",{style:{marginBottom:28,paddingLeft:22}},
+        cur.subs.map((sub,si)=>e("button",{key:si,onClick:()=>toggleSub(ci,si),style:{display:"flex",alignItems:"center",gap:10,width:"100%",background:"none",border:"none",padding:"8px 0",cursor:"pointer",textAlign:"left",fontFamily:"inherit"}},
+          e("span",{style:{width:18,height:18,borderRadius:4,border:"1.5px solid "+(sub.done?acc+"88":"#2a2a2a"),background:sub.done?acc+"22":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:11,color:acc,transition:"all .2s"}},sub.done?"✓":""),
+          e("span",{style:{fontSize:14,color:sub.done?"#555":"#aaa",textDecoration:sub.done?"line-through":"none",transition:"all .2s"}},sub.text)
+        )),
+        e("div",{style:{marginTop:6,fontSize:10,color:"#333",letterSpacing:2}},cur.subs.filter(s=>s.done).length+" / "+cur.subs.length+" DONE")
+      ):null,
+      exitNotes[ci-1]&&!showExit?e("div",{style:{background:"rgba(200,240,96,0.03)",border:"1px solid rgba(200,240,96,0.1)",borderRadius:6,padding:"12px 16px",marginBottom:16}},
+        e("span",{style:{display:"block",fontSize:8,color:"#5a7a20",letterSpacing:4,marginBottom:6,fontWeight:700}},"MEMO"),
+        e("span",{style:{fontSize:13,color:"#888",lineHeight:1.6}},exitNotes[ci-1])
+      ):null,
+      tasks[ci+1]&&!showExit?e("div",{style:{display:"flex",gap:12,alignItems:"baseline",marginBottom:28,opacity:.25}},
+        e("span",{style:{fontSize:9,letterSpacing:4,color:"#444",flexShrink:0,fontWeight:700}},"NEXT"),
+        e("span",{style:{fontSize:14,color:"#444"}},tasks[ci+1].text)
+      ):null,
+      !showExit?e("div",{style:{fontSize:12,lineHeight:2,color:"#444",fontStyle:"italic",marginBottom:32,borderLeft:"1px solid #1a1a1a",paddingLeft:14}},
+        "「",...fmtQ(quote.text),"」",e("span",{style:{color:"#333"}}," — "+quote.by)
+      ):null,
+      showExit?e("div",{style:{background:"rgba(255,255,255,0.02)",border:"1px solid #181818",borderRadius:10,padding:22,marginBottom:28}},
+        e("div",{style:{fontSize:9,letterSpacing:5,color:"#333",marginBottom:12,fontWeight:700}},"MEMO"),
+        e("textarea",{value:exitNote,onChange:ev=>setExitNote(ev.target.value),placeholder:"どこまでやったか一言...",autoFocus:true,rows:2,style:{width:"100%",background:"transparent",border:"1px solid #1a1a1a",borderRadius:6,color:"#e8e4dc",fontSize:15,padding:"12px 14px",fontFamily:"inherit",resize:"none",outline:"none",boxSizing:"border-box",marginBottom:14,lineHeight:1.6}}),
+        e("button",{onClick:doExitNext,style:{width:"100%",border:"none",borderRadius:6,padding:16,fontSize:14,fontWeight:900,color:"#000",cursor:"pointer",letterSpacing:4,marginBottom:8,background:acc}},"NEXT →"),
+        e("button",{onClick:()=>setShowExit(false),style:{width:"100%",background:"none",border:"none",color:"#2a2a2a",fontSize:12,cursor:"pointer",padding:8,letterSpacing:3}},"戻る")
+      ):null,
+      !showExit?e("div",{style:{display:"flex",flexDirection:"column",gap:10}},
+        e("button",{onClick:completeTask,style:{width:"100%",border:"none",borderRadius:8,padding:24,fontSize:22,fontWeight:900,color:"#000",cursor:"pointer",letterSpacing:6,background:acc,boxShadow:`0 0 40px ${acc}33,0 4px 24px rgba(0,0,0,0.5)`}},"完了"),
+        e("button",{onClick:()=>setShowExit(true),style:{width:"100%",background:"rgba(255,255,255,0.02)",border:"1px solid #181818",borderRadius:8,padding:18,fontSize:14,color:"#333",cursor:"pointer",letterSpacing:3}},"次へ（途中）")
+      ):null,
+      e("button",{onClick:reset,style:{background:"none",border:"none",color:"#141414",fontSize:10,cursor:"pointer",marginTop:32,letterSpacing:4,display:"block"}},"reset")
+    )
+  );
+}
+
+// ── Setup Screen (separate component for drag hook) ──
+function SetupScreen({tasks,st,setSt,pushU,undos,undo,addTask,rmTask,startEdit,editId,editVal,setEditVal,commitEdit,reorderTasks,clearAll,addSub,rmSub,expTask,setExpTask,subInp,setSubInp,startFocus,inp,setInp,sugg,iRef,dayAcc,P}){
+  const drag=useDragReorder(tasks,(from,to)=>{pushU();reorderTasks(from,to)});
+
+  const taskEls=tasks.map((task,i)=>{
+    const acc=AC[i%AC.length], isOpen=expTask===task.id, isEdit=editId===task.id;
+    const subsDone=task.subs.filter(s=>s.done).length, subsTotal=task.subs.length;
+    const isDragging=drag.dragIdx===i;
+    const isOver=drag.overIdx===i&&drag.dragIdx!==i;
+
+    // Grip handle for drag
+    const grip=!isEdit&&tasks.length>1?e("div",{
+      onTouchStart:drag.onTouchStart(i),
+      onTouchMove:drag.onTouchMove,
+      onTouchEnd:drag.onTouchEnd,
+      onMouseDown:drag.onMouseDown(i),
+      style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,flexShrink:0,cursor:"grab",padding:"4px 2px",touchAction:"none",userSelect:"none",WebkitUserSelect:"none"}
+    },
+      e("span",{style:{display:"block",width:12,height:1.5,background:"#333",borderRadius:1}}),
+      e("span",{style:{display:"block",width:12,height:1.5,background:"#333",borderRadius:1}}),
+      e("span",{style:{display:"block",width:12,height:1.5,background:"#333",borderRadius:1}})
+    ):null;
+
+    return e("div",{
+      key:task.id,
+      ref:el=>drag.regRef(task.id,el),
+      className:"drag-card"+(isDragging?" dragging":"")+(isOver?(drag.dragIdx<i?" drag-over-top":" drag-over-bottom"):""),
+      style:{marginBottom:6}
+    },
+      e("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"16px 14px",borderLeft:"3px solid "+acc,background:isEdit?"rgba(255,255,255,0.04)":"rgba(255,255,255,0.015)",borderRadius:isOpen?"0 6px 0 0":"0 6px 6px 0"}},
+        e("span",{style:{fontSize:11,fontWeight:900,letterSpacing:2,width:22,flexShrink:0,color:acc,textShadow:`0 0 20px ${acc}44`}},String(i+1).padStart(2,"0")),
+        grip,
+        isEdit
+          ?e("input",{
+            key:"edit-"+task.id,
+            value:editVal,
+            onChange:ev=>setEditVal(ev.target.value),
+            onKeyDown:ev=>{if(ev.key==="Enter")commitEdit();if(ev.key==="Escape")commitEdit()},
+            onBlur:commitEdit,
+            autoFocus:true,
+            style:{flex:1,background:"none",border:"none",borderBottom:"1px solid "+acc+"66",color:"#e8e4dc",fontSize:17,outline:"none",fontFamily:"inherit",letterSpacing:1,fontWeight:600,paddingBottom:2}
+          })
+          :e("span",{onClick:()=>startEdit(task.id),style:{flex:1,fontSize:17,lineHeight:1.4,fontWeight:600,cursor:"pointer"}},task.text),
+        subsTotal>0?e("span",{style:{fontSize:9,color:acc,opacity:.6,flexShrink:0,letterSpacing:1}},subsDone+"/"+subsTotal):null,
+        !isEdit?e("button",{onClick:()=>{setExpTask(isOpen?null:task.id);setSubInp("")},style:{background:"none",border:"none",color:isOpen?acc:"#2a2a2a",fontSize:11,cursor:"pointer",padding:"0 6px"}},"＋"):null,
+        !isEdit?e("button",{onClick:()=>rmTask(task.id),style:{background:"none",border:"none",color:"#2a2a2a",fontSize:13,cursor:"pointer",padding:"0 4px"}},"✕"):null
+      ),
+      isOpen?e("div",{style:{borderLeft:"3px solid "+acc+"44",padding:"8px 14px 12px 48px",background:"rgba(255,255,255,0.01)",borderRadius:"0 0 6px 0"}},
+        task.subs.map((sub,si)=>e("div",{key:"sub-"+si,style:{display:"flex",alignItems:"center",gap:8,marginBottom:4}},
+          e("span",{style:{fontSize:13,color:"#555",flex:1}},sub.text),
+          e("button",{onClick:()=>rmSub(task.id,si),style:{background:"none",border:"none",color:"#2a2a2a",fontSize:11,cursor:"pointer",padding:"0 4px"}},"✕")
+        )),
+        e("div",{style:{display:"flex",alignItems:"center",gap:8,marginTop:task.subs.length?6:0}},
+          e("input",{key:"sub-input-"+task.id,value:subInp,onChange:ev=>setSubInp(ev.target.value),onKeyDown:ev=>{if(ev.key==="Enter")addSub(task.id)},placeholder:"サブタスク追加...",autoFocus:true,style:{flex:1,background:"none",border:"none",borderBottom:"1px solid #1a1a1a",color:"#999",fontSize:13,outline:"none",fontFamily:"inherit",paddingBottom:3}}),
+          subInp.trim()?e("button",{onClick:()=>addSub(task.id),style:{background:"none",border:"1px solid "+acc+"33",color:acc,fontSize:14,cursor:"pointer",width:26,height:26,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center"}},"+"):null
+        )
+      ):null
+    );
+  });
+
+  return e("div",{style:{minHeight:"100vh",background:"#080808",position:"relative",overflowX:"hidden"}},
+    e(GeoBg,{ai:tasks.length}),
+    e("div",{style:P},
+      e("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",paddingTop:44,marginBottom:24}},
+        e("span",{style:{fontSize:9,letterSpacing:6,color:"#444",fontWeight:700}},"TODAY'S FOCUS"),
+        e("div",{style:{display:"flex",gap:6,alignItems:"center"}},
+          e("span",{style:{fontSize:10,color:"#2a2a2a",letterSpacing:2}},tasks.length+"/5"),
+          undos.length>0?e("button",{onClick:undo,style:{background:"none",border:"1px solid #1a1a1a",color:"#555",fontSize:9,letterSpacing:2,padding:"3px 10px",borderRadius:3,cursor:"pointer"}},"↩"):null,
+          tasks.length>0?e("button",{onClick:clearAll,style:{background:"none",border:"1px solid #1a1a1a",color:"#333",fontSize:9,letterSpacing:3,padding:"3px 10px",borderRadius:3,cursor:"pointer"}},"CLR"):null
+        )
+      ),
+      e("div",{style:{marginBottom:32}},
+        taskEls,
+        tasks.length<5?e("div",{style:{display:"flex",alignItems:"center",gap:14,padding:"16px 14px",borderLeft:"3px solid "+AC[tasks.length%AC.length]+"44",marginBottom:6,borderRadius:"0 6px 6px 0"}},
+          e("span",{style:{fontSize:11,fontWeight:900,letterSpacing:2,width:22,flexShrink:0,color:AC[tasks.length%AC.length]+"66"}},String(tasks.length+1).padStart(2,"0")),
+          e("input",{ref:iRef,value:inp,onChange:ev=>setInp(ev.target.value),onKeyDown:ev=>{if(ev.key==="Enter")addTask()},placeholder:"タスクを入力",autoFocus:expTask===null&&editId===null,style:{flex:1,background:"none",border:"none",color:"#e8e4dc",fontSize:17,outline:"none",fontFamily:"inherit",letterSpacing:1,fontWeight:600}}),
+          inp.trim()?e("button",{onClick:()=>addTask(),style:{background:"none",border:"1px solid "+AC[tasks.length%AC.length]+"44",color:AC[tasks.length%AC.length],fontSize:20,cursor:"pointer",width:34,height:34,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center"}},"+"):null
+        ):null,
+        sugg.length>0?e("div",{style:{paddingLeft:14,marginTop:8}},
+          e("div",{style:{fontSize:8,color:"#2a2a2a",letterSpacing:5,marginBottom:6,fontWeight:700}},"HISTORY"),
+          sugg.map((s,i)=>e("button",{key:i,onClick:()=>addTask(s),style:{display:"flex",alignItems:"center",gap:10,width:"100%",background:"rgba(255,255,255,0.02)",border:"none",color:"#444",fontSize:14,padding:"10px 12px",cursor:"pointer",textAlign:"left",borderRadius:4,marginBottom:3,fontFamily:"inherit"}},e("span",{style:{fontSize:10,color:"#333"}},"↑"),s))
+        ):null
+      ),
+      tasks.length>0?e("button",{onClick:startFocus,style:{width:"100%",border:"none",borderRadius:8,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",fontSize:15,fontWeight:900,color:"#000",letterSpacing:4,background:AC[0],boxShadow:`0 0 40px ${AC[0]}33,0 4px 24px rgba(0,0,0,0.5)`}},e("span",{style:{letterSpacing:6}},"START"),e("span",{style:{fontSize:22}},"→")):null,
+      e("button",{onClick:()=>setSt(s=>({...s,mode:"home"})),style:{background:"none",border:"none",color:"#1a1a1a",fontSize:10,cursor:"pointer",marginTop:20,letterSpacing:4,display:"block"}},"← back")
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(e(App));
+</script>
+</body>
+</html>
