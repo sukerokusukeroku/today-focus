@@ -420,7 +420,7 @@ function SetupScreen({tasks,st,setSt,pushU,undos,undo,addTask,rmTask,startEdit,e
 
     const mergeBtn=!isEdit&&i>0?e("button",{
       onClick:()=>mergeUp(i),
-      style:{background:"none",border:"1px solid #1a1a1a",color:"#333",fontSize:10,cursor:"pointer",padding:"2px 6px",borderRadius:3,lineHeight:1.2,fontFamily:"monospace",letterSpacing:1}
+      style:{background:"rgba(255,255,255,0.04)",border:"1px solid "+acc+"44",color:acc,fontSize:11,cursor:"pointer",padding:"3px 8px",borderRadius:4,lineHeight:1.2,fontFamily:"monospace",letterSpacing:0,flexShrink:0}
     },"↳"):null;
 
     return e("div",{
