@@ -15,10 +15,13 @@ body{font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP','SF Pro',monospace;c
 input,textarea,button{font-family:inherit}
 @keyframes pulse{0%,100%{opacity:.3}50%{opacity:.8}}
 @keyframes flashOut{0%{opacity:.2}100%{opacity:0}}
-.drag-card{transition:transform .3s cubic-bezier(.2,.8,.3,1),opacity .3s ease}
-.drag-card.dragging{opacity:.85;z-index:100;box-shadow:0 12px 40px rgba(0,0,0,.6);transform:scale(1.03)}
+@keyframes mergeFlash{0%{box-shadow:0 0 0 0 rgba(200,240,96,.4)}50%{box-shadow:0 0 20px 4px rgba(200,240,96,.3)}100%{box-shadow:0 0 0 0 transparent}}
+.drag-card{transition:transform .3s cubic-bezier(.2,.8,.3,1),opacity .3s ease,box-shadow .3s ease}
+.drag-card.dragging{opacity:.7;z-index:100;transform:scale(.96)}
 .drag-card.drag-over-top{transform:translateY(8px)}
 .drag-card.drag-over-bottom{transform:translateY(-8px)}
+.drag-card.merge-target{box-shadow:0 0 24px 2px rgba(200,240,96,.25);transform:scale(1.02)}
+.drag-card.merge-done{animation:mergeFlash .4s ease-out}
 </style>
 </head>
 <body>
@@ -123,54 +126,62 @@ function GlitchText({children,style:s}){
 function Stagger({children,delay:d=0}){const[v,sv]=h(false);ue(()=>{const t=setTimeout(()=>sv(true),d);return()=>clearTimeout(t)},[d]);return e("div",{style:{opacity:v?1:0,transform:v?"translateY(0)":"translateY(20px)",transition:"opacity .6s cubic-bezier(.2,.8,.3,1),transform .6s cubic-bezier(.2,.8,.3,1)"}},children)}
 function ProgressBar({pct,ai}){const a=AC[ai%AC.length],n=AC[(ai+1)%AC.length];return e("div",{style:{position:"fixed",top:0,left:0,height:3,zIndex:10,width:pct+"%",background:`linear-gradient(90deg,${a},${n})`,transition:"width 1s cubic-bezier(.7,0,.3,1)",boxShadow:`0 0 20px ${a}66`}},e("div",{style:{position:"absolute",right:0,top:-2,width:7,height:7,borderRadius:"50%",background:n,boxShadow:`0 0 12px ${n}`}}))}
 
-// Task structure: {id: string, text: string, subs: [{text: string, done: bool}]}
 function mkTask(text){return{id:uid(),text,subs:[]}}
 function cloneTasks(ts){return ts.map(t=>({id:t.id,text:t.text,subs:t.subs.map(s=>({...s}))}))}
 
-// ── Drag reorder hook ──
-function useDragReorder(tasks, onReorder){
-  const dragFrom=ur(null);
-  const dragTo=ur(null);
+// ── Drag reorder + merge hook ──
+function useDragReorder(tasks,onReorder,onMerge){
+  const dragFrom=ur(null),dragTo=ur(null),mergeTgt=ur(null);
   const[dragIdx,setDragIdx]=h(-1);
   const[overIdx,setOverIdx]=h(-1);
-  const touchY=ur(0);
+  const[mergeIdx,setMergeIdx]=h(-1);
   const cardRefs=ur({});
 
   function regRef(id,el){if(el)cardRefs.current[id]=el;else delete cardRefs.current[id]}
 
-  function handleDragStart(i,clientY){
-    dragFrom.current=i;touchY.current=clientY;setDragIdx(i);
-  }
+  function handleDragStart(i){dragFrom.current=i;setDragIdx(i);mergeTgt.current=null;setMergeIdx(-1)}
   function handleDragMove(clientY){
     if(dragFrom.current===null)return;
-    const entries=tasks.map((t,i)=>{const el=cardRefs.current[t.id];if(!el)return null;const r=el.getBoundingClientRect();return{i,mid:r.top+r.height/2}}).filter(Boolean);
-    let closest=-1, minD=Infinity;
-    for(const en of entries){const d=Math.abs(clientY-en.mid);if(d<minD){minD=d;closest=en.i}}
-    dragTo.current=closest;setOverIdx(closest);
+    const from=dragFrom.current;
+    let closestIdx=-1,minD=Infinity,insideIdx=-1;
+    for(let i=0;i<tasks.length;i++){
+      const el=cardRefs.current[tasks[i].id];if(!el)continue;
+      const r=el.getBoundingClientRect(),mid=r.top+r.height/2;
+      const d=Math.abs(clientY-mid);
+      if(d<minD){minD=d;closestIdx=i}
+      if(clientY>=r.top&&clientY<=r.bottom&&i!==from)insideIdx=i;
+    }
+    if(insideIdx>=0){
+      dragTo.current=null;setOverIdx(-1);
+      mergeTgt.current=insideIdx;setMergeIdx(insideIdx);
+    }else{
+      mergeTgt.current=null;setMergeIdx(-1);
+      dragTo.current=closestIdx;setOverIdx(closestIdx);
+    }
   }
   function handleDragEnd(){
-    const from=dragFrom.current, to=dragTo.current;
-    dragFrom.current=null;dragTo.current=null;setDragIdx(-1);setOverIdx(-1);
-    if(from!==null&&to!==null&&from!==to)onReorder(from,to);
+    const from=dragFrom.current,to=dragTo.current,mt=mergeTgt.current;
+    dragFrom.current=null;dragTo.current=null;mergeTgt.current=null;
+    setDragIdx(-1);setOverIdx(-1);setMergeIdx(-1);
+    if(from===null)return;
+    if(mt!==null&&mt!==from){onMerge(from,mt);return}
+    if(to!==null&&to!==from)onReorder(from,to);
   }
 
-  // Touch handlers for grip area
-  function onTouchStart(i){return ev=>{ev.preventDefault();handleDragStart(i,ev.touches[0].clientY)}}
+  function onTouchStart(i){return ev=>{ev.preventDefault();handleDragStart(i)}}
   function onTouchMove(ev){if(dragFrom.current!==null){ev.preventDefault();handleDragMove(ev.touches[0].clientY)}}
   function onTouchEnd(){handleDragEnd()}
-
-  // Mouse fallback
-  function onMouseDown(i){return ev=>{ev.preventDefault();handleDragStart(i,ev.clientY);
+  function onMouseDown(i){return ev=>{ev.preventDefault();handleDragStart(i);
     const mm=ev2=>handleDragMove(ev2.clientY);
     const mu=()=>{handleDragEnd();window.removeEventListener("mousemove",mm);window.removeEventListener("mouseup",mu)};
     window.addEventListener("mousemove",mm);window.addEventListener("mouseup",mu)}}
 
-  return{dragIdx,overIdx,regRef,onTouchStart,onTouchMove,onTouchEnd,onMouseDown}
+  return{dragIdx,overIdx,mergeIdx,regRef,onTouchStart,onTouchMove,onTouchEnd,onMouseDown}
 }
 
 // ── App ──
 function App(){
-  const tod=today(), quote=um(()=>getTodayQuote(),[]);
+  const tod=today(),quote=um(()=>getTodayQuote(),[]);
   const[st,setSt]=h(null);
   const[streak,setStreak]=h(null);
   const[hist,setHist]=h([]);
@@ -180,10 +191,12 @@ function App(){
   const[showExit,setShowExit]=h(false);
   const[flash,setFlash]=h(false);
   const[scrFlash,setScrFlash]=h(null);
-  const[editId,setEditId]=h(null);   // changed: track by task ID, not index
+  const[editId,setEditId]=h(null);
   const[editVal,setEditVal]=h("");
+  const[editSub,setEditSub]=h(null); // {taskId, si}
+  const[editSubVal,setEditSubVal]=h("");
   const[undos,setUndos]=h([]);
-  const[expTask,setExpTask]=h(null);  // changed: track by task ID
+  const[expTask,setExpTask]=h(null);
   const[subInp,setSubInp]=h("");
   const iRef=ur(null);
 
@@ -192,10 +205,10 @@ function App(){
     const saved=sGet(SK);
     if(saved){
       const tasks=(saved.tasks||[]).map(t=>{
-        if(typeof t==="string") return mkTask(t);
+        if(typeof t==="string")return mkTask(t);
         return{id:t.id||uid(),text:t.text||"",subs:(t.subs||[]).map(s=>typeof s==="string"?{text:s,done:false}:s)};
       });
-      if(saved.mode==="focus"||saved.mode==="done") s={...s,...saved,tasks};
+      if(saved.mode==="focus"||saved.mode==="done")s={...s,...saved,tasks};
       else s={...s,tasks,exitNotes:saved.exitNotes||{}};
     }
     setSt(s);setStreak(loadStreak(tod));setHist(loadHistory());
@@ -221,26 +234,38 @@ function App(){
   function undo(){if(!undos.length)return;const p=undos[undos.length-1];setUndos(u=>u.slice(0,-1));setSt(s=>({...s,tasks:p}));setEditId(null)}
   function addTask(txt){const t=(txt??inp).trim();if(!t||tasks.length>=5)return;pushU();setSt(s=>({...s,tasks:[...s.tasks,mkTask(t)]}));setInp("");setSugg([]);setTimeout(()=>iRef.current?.focus(),50)}
   function rmTask(id){pushU();setEditId(null);setExpTask(null);setSt(s=>({...s,tasks:s.tasks.filter(t=>t.id!==id)}))}
-  function startEdit(id){const task=tasks.find(t=>t.id===id);if(!task)return;setEditId(id);setEditVal(task.text);setExpTask(null)}
+  function startEdit(id){const task=tasks.find(t=>t.id===id);if(!task)return;setEditId(id);setEditVal(task.text);setExpTask(null);setEditSub(null)}
   function commitEdit(){
     if(editId===null){setEditVal("");return}
-    const v=editVal.trim();
-    const task=tasks.find(t=>t.id===editId);
+    const v=editVal.trim(),task=tasks.find(t=>t.id===editId);
     if(v&&task&&v!==task.text){pushU();setSt(s=>({...s,tasks:s.tasks.map(t=>t.id===editId?{...t,text:v}:t)}))}
     setEditId(null);setEditVal("");
   }
   function reorderTasks(from,to){
-    pushU();
-    setSt(s=>{
-      const ts=cloneTasks(s.tasks);
-      const[item]=ts.splice(from,1);
-      ts.splice(to,0,item);
+    pushU();setSt(s=>{const ts=cloneTasks(s.tasks);const[item]=ts.splice(from,1);ts.splice(to,0,item);return{...s,tasks:ts}});
+  }
+  function mergeInto(fromIdx,toIdx){
+    pushU();setSt(s=>{
+      const ts=cloneTasks(s.tasks),src=ts[fromIdx],dst=ts[toIdx];
+      dst.subs.push({text:src.text,done:false});
+      src.subs.forEach(sub=>dst.subs.push({text:sub.text,done:sub.done}));
+      ts.splice(fromIdx,1);
       return{...s,tasks:ts};
     });
+    setEditId(null);setExpTask(null);
   }
+  function mergeUp(i){if(i<=0)return;mergeInto(i,i-1)}
   function clearAll(){pushU();setSt(s=>({...s,tasks:[]}))}
   function addSub(id){const t=subInp.trim();if(!t)return;setSt(s=>{const ts=cloneTasks(s.tasks);const task=ts.find(t2=>t2.id===id);if(task)task.subs.push({text:t,done:false});return{...s,tasks:ts}});setSubInp("")}
   function rmSub(id,si){setSt(s=>{const ts=cloneTasks(s.tasks);const task=ts.find(t=>t.id===id);if(task)task.subs.splice(si,1);return{...s,tasks:ts}})}
+  function startSubEdit(taskId,si){const task=tasks.find(t=>t.id===taskId);if(!task||!task.subs[si])return;setEditSub({taskId,si});setEditSubVal(task.subs[si].text);setEditId(null)}
+  function commitSubEdit(){
+    if(!editSub){setEditSubVal("");return}
+    const v=editSubVal.trim(),{taskId,si}=editSub;
+    const task=tasks.find(t=>t.id===taskId);
+    if(v&&task&&task.subs[si]&&v!==task.subs[si].text){pushU();setSt(s=>({...s,tasks:s.tasks.map(t=>t.id===taskId?{...t,subs:t.subs.map((sub,j)=>j===si?{...sub,text:v}:sub)}:t)}))}
+    setEditSub(null);setEditSubVal("");
+  }
   function toggleSub(ti,si){setSt(s=>{const ts=cloneTasks(s.tasks);ts[ti].subs[si].done=!ts[ti].subs[si].done;return{...s,tasks:ts}})}
   function startFocus(){if(!tasks.length)return;saveToHistory(tod,tasks);setHist(loadHistory());setSt(s=>({...s,mode:"focus",ci:0,date:tod}))}
   function completeTask(){setScrFlash(AC[ci%AC.length]);setFlash(true);setTimeout(()=>setScrFlash(null),300);setTimeout(()=>{setFlash(false);setSt(s=>{const n=s.ci+1;return n>=s.tasks.length?{...s,mode:"done"}:{...s,ci:n}})},600)}
@@ -248,7 +273,7 @@ function App(){
   function reset(){setSt({mode:"home",tasks:[],ci:0,exitNotes:{},date:tod})}
 
   // ── HOME ──
-  if(mode==="home") return e("div",{style:{minHeight:"100dvh",background:"#080808",position:"relative",overflowX:"hidden",display:"flex",flexDirection:"column"}},
+  if(mode==="home")return e("div",{style:{minHeight:"100dvh",background:"#080808",position:"relative",overflowX:"hidden",display:"flex",flexDirection:"column"}},
     e(GeoBg,{ai:Math.floor(mulberry32(dateSeed(tod))()*5)}),
     e("div",{style:{...P,flex:1,display:"flex",flexDirection:"column",justifyContent:"center",paddingBottom:40}},
       e(Stagger,{delay:0},e("div",{style:{fontSize:"clamp(10px,2.5vw,12px)",letterSpacing:10,color:"#2a2a2a",marginBottom:24,fontWeight:300,textAlign:"center"}},tod.replace(/\//g,"."))),
@@ -267,17 +292,16 @@ function App(){
   );
 
   // ── SETUP ──
-  if(mode==="setup"){
-    return e(SetupScreen,{
-      tasks,st,setSt,pushU:()=>setUndos(u=>[...u.slice(-19),cloneTasks(tasks)]),
-      undos,undo,addTask,rmTask,startEdit,editId,editVal,setEditVal,commitEdit,
-      reorderTasks,clearAll,addSub,rmSub,expTask,setExpTask,subInp,setSubInp,
-      startFocus,inp,setInp,sugg,iRef,dayAcc,P
-    });
-  }
+  if(mode==="setup")return e(SetupScreen,{
+    tasks,st,setSt,pushU:()=>setUndos(u=>[...u.slice(-19),cloneTasks(tasks)]),
+    undos,undo,addTask,rmTask,startEdit,editId,editVal,setEditVal,commitEdit,
+    editSub,editSubVal,setEditSubVal,startSubEdit,commitSubEdit,
+    reorderTasks,mergeInto,mergeUp,clearAll,addSub,rmSub,expTask,setExpTask,subInp,setSubInp,
+    startFocus,inp,setInp,sugg,iRef,dayAcc,P
+  });
 
   // ── DONE ──
-  if(mode==="done") return e("div",{style:{minHeight:"100vh",background:"#080808",position:"relative",overflowX:"hidden"}},
+  if(mode==="done")return e("div",{style:{minHeight:"100vh",background:"#080808",position:"relative",overflowX:"hidden"}},
     e(GeoBg,{ai:0}),
     e("div",{style:{position:"fixed",inset:0,zIndex:1,pointerEvents:"none",background:`radial-gradient(circle at 50% 40%,${AC[0]}08 0%,transparent 70%)`}}),
     e("div",{style:P},
@@ -364,58 +388,70 @@ function App(){
   );
 }
 
-// ── Setup Screen (separate component for drag hook) ──
-function SetupScreen({tasks,st,setSt,pushU,undos,undo,addTask,rmTask,startEdit,editId,editVal,setEditVal,commitEdit,reorderTasks,clearAll,addSub,rmSub,expTask,setExpTask,subInp,setSubInp,startFocus,inp,setInp,sugg,iRef,dayAcc,P}){
-  const drag=useDragReorder(tasks,(from,to)=>{pushU();reorderTasks(from,to)});
+// ── Setup Screen ──
+function SetupScreen({tasks,st,setSt,pushU,undos,undo,addTask,rmTask,startEdit,editId,editVal,setEditVal,commitEdit,editSub,editSubVal,setEditSubVal,startSubEdit,commitSubEdit,reorderTasks,mergeInto,mergeUp,clearAll,addSub,rmSub,expTask,setExpTask,subInp,setSubInp,startFocus,inp,setInp,sugg,iRef,dayAcc,P}){
+  const[mergedId,setMergedId]=h(null);
+  const drag=useDragReorder(tasks,
+    (from,to)=>{pushU();reorderTasks(from,to)},
+    (from,to)=>{
+      const targetId=tasks[to].id;
+      mergeInto(from,to);
+      setMergedId(targetId);setTimeout(()=>setMergedId(null),500);
+    }
+  );
 
   const taskEls=tasks.map((task,i)=>{
-    const acc=AC[i%AC.length], isOpen=expTask===task.id, isEdit=editId===task.id;
-    const subsDone=task.subs.filter(s=>s.done).length, subsTotal=task.subs.length;
-    const isDragging=drag.dragIdx===i;
-    const isOver=drag.overIdx===i&&drag.dragIdx!==i;
+    const acc=AC[i%AC.length],isOpen=expTask===task.id,isEdit=editId===task.id;
+    const subsDone=task.subs.filter(s=>s.done).length,subsTotal=task.subs.length;
+    const isDragging=drag.dragIdx===i,isOver=drag.overIdx===i&&drag.dragIdx!==i;
+    const isMergeTarget=drag.mergeIdx===i,justMerged=mergedId===task.id;
 
-    // Grip handle for drag
     const grip=!isEdit&&tasks.length>1?e("div",{
       onTouchStart:drag.onTouchStart(i),
       onTouchMove:drag.onTouchMove,
       onTouchEnd:drag.onTouchEnd,
       onMouseDown:drag.onMouseDown(i),
-      style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,flexShrink:0,cursor:"grab",padding:"4px 2px",touchAction:"none",userSelect:"none",WebkitUserSelect:"none"}
+      style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,flexShrink:0,cursor:"grab",padding:"6px 4px",touchAction:"none",userSelect:"none",WebkitUserSelect:"none"}
     },
-      e("span",{style:{display:"block",width:12,height:1.5,background:"#333",borderRadius:1}}),
-      e("span",{style:{display:"block",width:12,height:1.5,background:"#333",borderRadius:1}}),
-      e("span",{style:{display:"block",width:12,height:1.5,background:"#333",borderRadius:1}})
+      e("span",{style:{display:"block",width:14,height:1.5,background:isDragging?acc:"#333",borderRadius:1,transition:"background .2s"}}),
+      e("span",{style:{display:"block",width:14,height:1.5,background:isDragging?acc:"#333",borderRadius:1,transition:"background .2s"}}),
+      e("span",{style:{display:"block",width:14,height:1.5,background:isDragging?acc:"#333",borderRadius:1,transition:"background .2s"}})
     ):null;
+
+    const mergeBtn=!isEdit&&i>0?e("button",{
+      onClick:()=>mergeUp(i),
+      style:{background:"none",border:"1px solid #1a1a1a",color:"#333",fontSize:10,cursor:"pointer",padding:"2px 6px",borderRadius:3,lineHeight:1.2,fontFamily:"monospace",letterSpacing:1}
+    },"↳"):null;
 
     return e("div",{
       key:task.id,
       ref:el=>drag.regRef(task.id,el),
-      className:"drag-card"+(isDragging?" dragging":"")+(isOver?(drag.dragIdx<i?" drag-over-top":" drag-over-bottom"):""),
-      style:{marginBottom:6}
+      className:"drag-card"+(isDragging?" dragging":"")+(isOver?(drag.dragIdx<i?" drag-over-top":" drag-over-bottom":""):"")+(isMergeTarget?" merge-target":"")+(justMerged?" merge-done":""),
+      style:{marginBottom:6,position:"relative"}
     },
-      e("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"16px 14px",borderLeft:"3px solid "+acc,background:isEdit?"rgba(255,255,255,0.04)":"rgba(255,255,255,0.015)",borderRadius:isOpen?"0 6px 0 0":"0 6px 6px 0"}},
+      isMergeTarget?e("div",{style:{position:"absolute",inset:0,borderRadius:6,border:"1px solid "+acc+"66",background:acc+"0a",zIndex:2,pointerEvents:"none",display:"flex",alignItems:"center",justifyContent:"center"}},
+        e("span",{style:{fontSize:10,letterSpacing:4,color:acc,fontWeight:700,textShadow:"0 0 12px "+acc+"44"}},"↳ MERGE")
+      ):null,
+      e("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"16px 14px",borderLeft:"3px solid "+acc,background:isEdit?"rgba(255,255,255,0.04)":"rgba(255,255,255,0.015)",borderRadius:isOpen?"0 6px 0 0":"0 6px 6px 0"}},
         e("span",{style:{fontSize:11,fontWeight:900,letterSpacing:2,width:22,flexShrink:0,color:acc,textShadow:`0 0 20px ${acc}44`}},String(i+1).padStart(2,"0")),
         grip,
         isEdit
-          ?e("input",{
-            key:"edit-"+task.id,
-            value:editVal,
-            onChange:ev=>setEditVal(ev.target.value),
-            onKeyDown:ev=>{if(ev.key==="Enter")commitEdit();if(ev.key==="Escape")commitEdit()},
-            onBlur:commitEdit,
-            autoFocus:true,
-            style:{flex:1,background:"none",border:"none",borderBottom:"1px solid "+acc+"66",color:"#e8e4dc",fontSize:17,outline:"none",fontFamily:"inherit",letterSpacing:1,fontWeight:600,paddingBottom:2}
-          })
+          ?e("input",{key:"edit-"+task.id,value:editVal,onChange:ev=>setEditVal(ev.target.value),onKeyDown:ev=>{if(ev.key==="Enter")commitEdit();if(ev.key==="Escape")commitEdit()},onBlur:commitEdit,autoFocus:true,style:{flex:1,background:"none",border:"none",borderBottom:"1px solid "+acc+"66",color:"#e8e4dc",fontSize:17,outline:"none",fontFamily:"inherit",letterSpacing:1,fontWeight:600,paddingBottom:2}})
           :e("span",{onClick:()=>startEdit(task.id),style:{flex:1,fontSize:17,lineHeight:1.4,fontWeight:600,cursor:"pointer"}},task.text),
         subsTotal>0?e("span",{style:{fontSize:9,color:acc,opacity:.6,flexShrink:0,letterSpacing:1}},subsDone+"/"+subsTotal):null,
-        !isEdit?e("button",{onClick:()=>{setExpTask(isOpen?null:task.id);setSubInp("")},style:{background:"none",border:"none",color:isOpen?acc:"#2a2a2a",fontSize:11,cursor:"pointer",padding:"0 6px"}},"＋"):null,
+        mergeBtn,
+        !isEdit?e("button",{onClick:()=>{setExpTask(isOpen?null:task.id);setSubInp("")},style:{background:"none",border:"none",color:isOpen?acc:"#2a2a2a",fontSize:11,cursor:"pointer",padding:"0 5px"}},"＋"):null,
         !isEdit?e("button",{onClick:()=>rmTask(task.id),style:{background:"none",border:"none",color:"#2a2a2a",fontSize:13,cursor:"pointer",padding:"0 4px"}},"✕"):null
       ),
       isOpen?e("div",{style:{borderLeft:"3px solid "+acc+"44",padding:"8px 14px 12px 48px",background:"rgba(255,255,255,0.01)",borderRadius:"0 0 6px 0"}},
-        task.subs.map((sub,si)=>e("div",{key:"sub-"+si,style:{display:"flex",alignItems:"center",gap:8,marginBottom:4}},
-          e("span",{style:{fontSize:13,color:"#555",flex:1}},sub.text),
-          e("button",{onClick:()=>rmSub(task.id,si),style:{background:"none",border:"none",color:"#2a2a2a",fontSize:11,cursor:"pointer",padding:"0 4px"}},"✕")
-        )),
+        task.subs.map((sub,si)=>{
+          const isSubEdit=editSub&&editSub.taskId===task.id&&editSub.si===si;
+          return e("div",{key:"sub-"+si,style:{display:"flex",alignItems:"center",gap:8,marginBottom:4}},
+            isSubEdit
+              ?e("input",{key:"subedit-"+task.id+"-"+si,value:editSubVal,onChange:ev=>setEditSubVal(ev.target.value),onKeyDown:ev=>{if(ev.key==="Enter")commitSubEdit();if(ev.key==="Escape")commitSubEdit()},onBlur:commitSubEdit,autoFocus:true,style:{flex:1,background:"none",border:"none",borderBottom:"1px solid "+acc+"44",color:"#ccc",fontSize:13,outline:"none",fontFamily:"inherit",paddingBottom:2}})
+              :e("span",{onClick:()=>startSubEdit(task.id,si),style:{fontSize:13,color:"#555",flex:1,cursor:"pointer"}},sub.text),
+            !isSubEdit?e("button",{onClick:()=>rmSub(task.id,si),style:{background:"none",border:"none",color:"#2a2a2a",fontSize:11,cursor:"pointer",padding:"0 4px"}},"✕"):null
+          )}),
         e("div",{style:{display:"flex",alignItems:"center",gap:8,marginTop:task.subs.length?6:0}},
           e("input",{key:"sub-input-"+task.id,value:subInp,onChange:ev=>setSubInp(ev.target.value),onKeyDown:ev=>{if(ev.key==="Enter")addSub(task.id)},placeholder:"サブタスク追加...",autoFocus:true,style:{flex:1,background:"none",border:"none",borderBottom:"1px solid #1a1a1a",color:"#999",fontSize:13,outline:"none",fontFamily:"inherit",paddingBottom:3}}),
           subInp.trim()?e("button",{onClick:()=>addSub(task.id),style:{background:"none",border:"1px solid "+acc+"33",color:acc,fontSize:14,cursor:"pointer",width:26,height:26,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center"}},"+"):null
